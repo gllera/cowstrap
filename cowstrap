@@ -1,13 +1,41 @@
-#!/bin/bash -e
+#!/bin/bash -ae
 
+
+### Default variable values
+GS_SCRIPTS_PATH=${1:-$PWD}
+GS_RAW_SIZE=2
+GS_QCOW2_SIZE=0
+GS_WORKSPACE=build
+GS_DISTRO=bionic
+GS_HOSTNAME=vm
+
+
+### Read customized values
+[[ -f $GS_SCRIPTS_PATH/env ]] && . $GS_SCRIPTS_PATH/env
+
+set +a
+
+GS_SCRIPTS_PATH=$(realpath $GS_SCRIPTS_PATH)
+GS_WORKSPACE=$(   realpath $GS_WORKSPACE)
+ROOTFS_PATH=$GS_WORKSPACE/rootfs
+LAYERS_PATH=$GS_WORKSPACE/layers
+MOUNT_PATH=$GS_WORKSPACE/mnt
+RAW_PATH=$GS_WORKSPACE/hdd.raw
+QCOW2_PATH=$GS_WORKSPACE/hdd.qcow2
+NBD_PATH=/dev/nbd0
+
+export PARTITION_UUID=11111111-2222-3333-4444-555555555555
+
+
+### Useful variables and functions
 RED=$(tput setaf 1)
 YEL=$(tput setaf 3)
 CYA=$(tput setaf 6)
 RST=$(tput sgr0)
 
-err() { echo "${RED}$1${RST}"; }
-inf() { echo "${YEL}$1${RST}"; }
-msg() { echo "${CYA}$1${RST}"; }
+err() { echo -e "${RED}$1${RST}"; exit 1; }
+inf() { echo -e "${YEL}$1${RST}"; }
+msg() { echo -e "${CYA}$1${RST}"; }
 
 reverse() {
   local RES=$(printf '%s\n' "$@" | tac | tr '\n' ' ')
@@ -22,36 +50,15 @@ umount_all() {
    
    if ((GS_QCOW2_SIZE)); then
       modprobe nbd
+
+      (($1)) && (( $(cat /sys/class/block/$(basename $NBD_PATH)/size) )) && err "ERROR: Already mounted: $NBD_PATH\nTIP: To unmount, execute: qemu-nbd -d $NBD_PATH"
       qemu-nbd -d $NBD_PATH > /dev/null
    fi
 }
 
-set -a
-GS_SCRIPTS_PATH=${1:-$PWD}
-GS_RAW_SIZE=2
-GS_QCOW2_SIZE=0
-GS_WORKSPACE=build
-GS_DISTRO=bionic
-GS_HOSTNAME=vm
 
-. $GS_SCRIPTS_PATH/env
-
-PARTITION_UUID=11111111-2222-3333-4444-555555555555
-set +a
-
-[[ -z "$GS_WORKSPACE" ]] && err "ERROR: variable GS_WORKSPACE undefined" && exit 1
-[[ -z "$GS_DISTRO"    ]] && err "ERROR: variable GS_DISTRO undefined"    && exit 1
-
-GS_SCRIPTS_PATH=$(realpath $GS_SCRIPTS_PATH)
-GS_WORKSPACE=$(   realpath $GS_WORKSPACE)
-ROOTFS_PATH=$GS_WORKSPACE/rootfs
-LAYERS_PATH=$GS_WORKSPACE/layers
-MOUNT_PATH=$GS_WORKSPACE/mnt
-RAW_PATH=$GS_WORKSPACE/hdd.raw
-QCOW2_PATH=$GS_WORKSPACE/hdd.qcow2
-NBD_PATH=/dev/nbd0
-
-umount_all
+### Preparing environment
+umount_all 1
 trap umount_all EXIT
 
 mkdir -p $LAYERS_PATH $ROOTFS_PATH $MOUNT_PATH
@@ -59,13 +66,14 @@ mkdir -p $LAYERS_PATH $ROOTFS_PATH $MOUNT_PATH
 cd $GS_SCRIPTS_PATH
 
 
+### Start working
 inf "Getting layers..."
 LAYERS=()
 
 for i in [0-9][0-9]*
 do
    regexp='[-_]'
-   [[ ${i:2:1} =~ $regexp ]] || ( err "ERROR: Invalid script name: $i" && exit 1 )
+   [[ ${i:2:1} =~ $regexp ]] || err "ERROR: Invalid script name: $i"
    
    LAYERS+=( $i )
 done
