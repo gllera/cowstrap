@@ -1,0 +1,14 @@
+#!/bin/bash -e
+
+curl -fsSL https://download.docker.com/linux/ubuntu/gpg | apt-key add -
+add-apt-repository "deb [arch=amd64] http://download.docker.com/linux/ubuntu $GS_DISTRO stable"
+
+apt update
+
+apt install -y \
+ libevent-dev libncurses5-dev \
+ python3 python3-pip python3-neovim \
+ git rsync silversearcher-ag zsh sshpass \
+ docker-ce docker-ce-cli containerd.io=1.2.6-3
+
+python3 -m pip install pynvim

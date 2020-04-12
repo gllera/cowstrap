@@ -1,0 +1,6 @@
+#!/bin/bash -e
+
+mkdir tmp/tmux
+
+curl -SL https://github.com/neovim/neovim/releases/download/v0.4.3/nvim-linux64.tar.gz | tar xz --strip 1 -C usr/local
+curl -SL https://github.com/tmux/tmux/releases/download/3.0/tmux-3.0.tar.gz            | tar xz --strip 1 -C tmp/tmux

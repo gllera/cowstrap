@@ -1,0 +1,3 @@
+GS_HOSTNAME=vm
+GS_QCOW2_SIZE=40
+http_proxy=http://localhost:3142

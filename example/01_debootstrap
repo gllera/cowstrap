@@ -1,0 +1,6 @@
+#!/bin/bash -e
+
+debootstrap \
+  --components=main,universe,multiverse \
+  --include=linux-image-virtual,grub-pc \
+  $GS_DISTRO . http://archive.ubuntu.com/ubuntu/

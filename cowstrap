@@ -1,0 +1,170 @@
+#!/bin/bash -e
+
+RED=$(tput setaf 1)
+YEL=$(tput setaf 3)
+CYA=$(tput setaf 6)
+RST=$(tput sgr0)
+
+err() { echo "${RED}$1${RST}"; }
+inf() { echo "${YEL}$1${RST}"; }
+msg() { echo "${CYA}$1${RST}"; }
+
+reverse() {
+  local RES=$(printf '%s\n' "$@" | tac | tr '\n' ' ')
+  RES=${RES% }
+  echo ${RES// /:}
+}
+
+umount_all() {
+   mountpoint -q $ROOTFS_PATH && umount -R $ROOTFS_PATH
+   mountpoint -q $MOUNT_PATH  && umount -R $MOUNT_PATH
+   losetup --list | grep $RAW_PATH | awk '{print $1}' | xargs -r losetup -d
+   
+   if ((GS_QCOW2_SIZE)); then
+      modprobe nbd
+      qemu-nbd -d $NBD_PATH > /dev/null
+   fi
+}
+
+set -a
+GS_SCRIPTS_PATH=${1:-$PWD}
+GS_RAW_SIZE=2
+GS_QCOW2_SIZE=0
+GS_WORKSPACE=build
+GS_DISTRO=bionic
+GS_HOSTNAME=vm
+
+. $GS_SCRIPTS_PATH/env
+
+PARTITION_UUID=11111111-2222-3333-4444-555555555555
+set +a
+
+[[ -z "$GS_WORKSPACE" ]] && err "ERROR: variable GS_WORKSPACE undefined" && exit 1
+[[ -z "$GS_DISTRO"    ]] && err "ERROR: variable GS_DISTRO undefined"    && exit 1
+
+GS_SCRIPTS_PATH=$(realpath $GS_SCRIPTS_PATH)
+GS_WORKSPACE=$(   realpath $GS_WORKSPACE)
+ROOTFS_PATH=$GS_WORKSPACE/rootfs
+LAYERS_PATH=$GS_WORKSPACE/layers
+MOUNT_PATH=$GS_WORKSPACE/mnt
+RAW_PATH=$GS_WORKSPACE/hdd.raw
+QCOW2_PATH=$GS_WORKSPACE/hdd.qcow2
+NBD_PATH=/dev/nbd0
+
+umount_all
+trap umount_all EXIT
+
+mkdir -p $LAYERS_PATH $ROOTFS_PATH $MOUNT_PATH
+
+cd $GS_SCRIPTS_PATH
+
+
+inf "Getting layers..."
+LAYERS=()
+
+for i in [0-9][0-9]*
+do
+   regexp='[-_]'
+   [[ ${i:2:1} =~ $regexp ]] || ( err "ERROR: Invalid script name: $i" && exit 1 )
+   
+   LAYERS+=( $i )
+done
+
+cd $LAYERS_PATH
+
+
+inf "Purging layers..."
+CLEAN=1
+rm -rf workdir
+
+for i in [0-9][0-9]*
+do
+   SRC=$GS_SCRIPTS_PATH/$i
+
+   [[ -f $SRC ]] && [[ $(stat -c "%Y" $i) == $(stat -c "%Y" $SRC) ]] && ((CLEAN)) && continue
+
+   rm -rf "$i"
+   CLEAN=0
+done
+
+((CLEAN)) || { rm -f $RAW_PATH $QCOW2_PATH; }
+
+
+inf "Updating rootfs..."
+for i in $(seq 0 $(( ${#LAYERS[@]} - 1 )))
+do
+   LAYER=${LAYERS[$i]}
+   SRC=$GS_SCRIPTS_PATH/$LAYER
+
+   [[ -d $LAYER ]] && continue
+
+   msg "-> $LAYER"
+
+   mkdir $LAYER workdir
+
+   if ((i)); then
+      mount -t overlay overlay -o lowerdir=$(reverse ${LAYERS[@]:0:$i}),upperdir=$LAYER,workdir=workdir $ROOTFS_PATH
+   else
+      mount -o bind $LAYER $ROOTFS_PATH
+   fi
+
+   if [[ "${LAYER:2:1}" == "-" ]]; then
+      cp $SRC $ROOTFS_PATH/script
+      chroot $ROOTFS_PATH bash -e /script
+      rm -f "$ROOTFS_PATH/script"
+   else
+      ( cd $ROOTFS_PATH; bash -e $SRC )
+   fi
+
+   umount -R $ROOTFS_PATH
+   rm -rf workdir
+   touch -r $SRC $LAYER
+done
+
+
+inf "Creating RAW image..."
+if [[ ! -f $RAW_PATH ]]; then
+   dd if=/dev/zero of=$RAW_PATH bs=64K count=$((GS_RAW_SIZE * 1048576 / 64))
+
+   DEVICE=$(losetup --show -Pf $RAW_PATH)
+   PART1=${DEVICE}p1
+
+   echo -e 'label: MBR \n type=83' | sfdisk $DEVICE > /dev/null
+      
+   mkfs.ext4 -U $PARTITION_UUID -qF $PART1
+   e2fsck -yf $PART1 > /dev/null
+   
+   mount $PART1 $MOUNT_PATH
+   mount -t overlay overlay -o lowerdir=$(reverse ${LAYERS[@]}) $ROOTFS_PATH
+   
+   rm -rf $MOUNT_PATH/*
+   cp -pr $ROOTFS_PATH/* $MOUNT_PATH
+   
+   mount -t proc none $MOUNT_PATH/proc
+   mount -t sysfs sys $MOUNT_PATH/sys
+   mount -o bind /dev $MOUNT_PATH/dev
+   
+   chroot $MOUNT_PATH grub-mkconfig -o /boot/grub/grub.cfg
+   chroot $MOUNT_PATH grub-install $DEVICE
+
+   umount -R $MOUNT_PATH $ROOTFS_PATH
+   rm -f $QCOW2_PATH
+fi
+
+
+inf "Converting RAW to QCOW2..."
+if ((GS_QCOW2_SIZE)) && [[ ! -f $QCOW2_PATH ]]; then
+
+   qemu-img convert -p -f raw -O qcow2 $RAW_PATH $QCOW2_PATH
+      
+   if  [[ $GS_QCOW2_SIZE != $GS_RAW_SIZE ]]; then
+      qemu-img resize $QCOW2_PATH ${GS_QCOW2_SIZE}G
+      qemu-nbd -c $NBD_PATH $QCOW2_PATH
+      echo -e 'label: MBR \n type=83' | sfdisk $NBD_PATH > /dev/null
+      resize2fs ${NBD_PATH}p1
+      qemu-nbd -d $NBD_PATH > /dev/null
+   fi
+fi
+
+
+inf "It's all good dude!"

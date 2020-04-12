@@ -1,0 +1,6 @@
+#!/bin/bash -e
+
+cd /tmp/tmux
+./configure
+make -j $(nproc)
+make install

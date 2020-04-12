@@ -1,0 +1,38 @@
+#!/bin/bash -e
+
+locale-gen en_US.UTF-8
+
+apt update
+
+apt install -y \
+ curl wget sudo iptables fuse \
+ software-properties-common apt-utils \
+ dialog man-db manpages glibc-doc wamerican \
+ openssh-server build-essential
+
+echo '
+GRUB_DEFAULT=0
+GRUB_TIMEOUT=1
+
+GRUB_DISTRIBUTOR=`lsb_release -i -s 2> /dev/null || echo Debian`
+
+GRUB_CMDLINE_LINUX="console=tty0 console=ttyS0,115200n8 net.ifnames=0 biosdevname=0"
+GRUB_CMDLINE_LINUX_DEFAULT="quiet splash ipv6.disable=1"
+
+GRUB_TERMINAL="serial console"
+GRUB_SERIAL_COMMAND="serial --speed=115200 --unit=0 --word=8 --parity=no --stop=1"
+' > /etc/default/grub
+
+echo '
+network:
+  version: 2
+  renderer: networkd
+  ethernets:
+    eth0:
+      dhcp4: true
+' > /etc/netplan/99_eth0.yaml
+
+echo "
+/dev/disk/by-uuid/$PARTITION_UUID / ext4 defaults 0 0
+" > /etc/fstab
+

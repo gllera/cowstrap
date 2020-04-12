@@ -1,0 +1,16 @@
+#!/bin/bash -e
+
+rm -f   /etc/update-motd.d/*              /etc/motd
+ln -s   /usr/local/bin/nvim               /usr/local/bin/vim
+ln -fs  /usr/share/zoneinfo/Europe/Madrid /etc/localtime
+
+sed -i 's/#GatewayPorts.*/GatewayPorts clientspecified/' /etc/ssh/sshd_config
+
+echo "$GS_HOSTNAME" > /etc/hostname
+
+echo "
+127.0.0.1 localhost
+127.0.1.1 $GS_HOSTNAME" > /etc/hosts
+
+dpkg-reconfigure -f noninteractive tzdata
+mandb

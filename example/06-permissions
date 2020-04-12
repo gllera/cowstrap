@@ -1,0 +1,11 @@
+#!/bin/bash -e
+
+chown -R root:root /usr/local
+chmod -R 755       /usr/local
+
+echo "%sudo ALL=(ALL) NOPASSWD: ALL" >> /etc/sudoers.d/custom
+
+groupadd -g 997 one
+useradd  -g one -G docker,sudo -rmd /home/one -s /usr/bin/zsh -u 999 one
+
+echo 'one:one' | chpasswd
